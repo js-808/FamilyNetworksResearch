@@ -1,6 +1,8 @@
 import os
+from subprocess import _USE_POSIX_SPAWN
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 import networkx as nx 
 
 ######## --------- FUNCTIONS USED TO PARSE .paj FILES --------- ##########
@@ -248,6 +250,130 @@ def get_relationship_info(children, marriages):
     # Return the information dictionary created for this network
     return graph_info
 
+######## --------- FUNCTIONS USED TO VISUALIZE MARRIAGE/CHILDREN DISTRIBUTIONS --------- ##########
+def plot_child_histograms(network_name, pdf, complete_dist, married_parent_dist, 
+                            unmarried_parent_dist, single_parent_dist):
+    """Plots a histogram of the various children distributions for a given network.
+
+    Plots all 4 different distributions on the same axis.
+
+    Parameters:
+        network_name (str): The name of the network being analyzed (for title purposes)
+        pdf (PdfPages): A PDF backend object to add the plot to 
+        complete_dist (list): A list, with entries being the number of children in each 
+                              family (all categories included)
+        married_parent_dist (list): A list, with entries being the number of children in each
+                                    family with married parents
+        unmarried_parent_dist (list): A list, with entries being the number of children in each
+                                      family with unmarried parents
+        single_parent_dist (list): A list, with entries being the number of children in each
+                                   family with a single parent
+    """
+    ##### TODO: Plot this with 2-core of the network side by side
+    # Get the maximum number of children in a family found in this network
+    max_children = max(complete_dist)
+    
+    # Get the equally-spaced integer bins for plotting on the histogram
+    bins = [i for i in range(0,max_children+1)]
+    
+    # Find which distributions to plot, if any 
+    list_of_histograms = []
+    list_of_labels = []
+    colors = []
+    if len(complete_dist) > 0:
+        # Append the distribution to the list of histograms to plot
+        list_of_histograms.append(complete_dist)
+
+        # Show the number of families included in this distribution
+        num_families = len(complete_dist)
+        if num_families == 1:
+            family_str = f"({num_families} family)"
+        else:
+            family_str = f"({num_families} families)"
+        
+        # Create the appropriate graph label and color
+        list_of_labels.append(f"Complete Network {family_str}")
+        colors.append('r')
+    if len(married_parent_dist) > 0:
+        # Append the distribution to the list of histograms to plot
+        list_of_histograms.append(married_parent_dist)
+
+        # Show the number of families included in this distribution
+        num_families = len(married_parent_dist)
+        if num_families == 1:
+            family_str = f"({num_families} family)"
+        else:
+            family_str = f"({num_families} families)"
+        
+        # Create the appropriate graph label and color
+        list_of_labels.append(f"Married Parents {family_str}")
+        colors.append('g')
+    if len(unmarried_parent_dist) > 0:
+        # Append the distribution to the list of histograms to plot
+        list_of_histograms.append(unmarried_parent_dist)
+
+        # Show the number of families included in this distribution
+        num_families = len(unmarried_parent_dist)
+        if num_families == 1:
+            family_str = f"({num_families} family)"
+        else:
+            family_str = f"({num_families} families)"
+
+        # Create the appropriate graph label and color
+        list_of_labels.append(f"Unmarried Parents {family_str}")
+        colors.append('c')
+    if len(single_parent_dist) > 0:
+        # Append the distribution to the list of histograms to plot
+        list_of_histograms.append(single_parent_dist)
+
+        # Show the number of families included in this distribution
+        num_families = len(single_parent_dist)
+        if num_families == 1:
+            family_str = f"({num_families} family)"
+        else:
+            family_str = f"({num_families} families)"
+
+        # Create the appropriate graph label and color
+        list_of_labels.append(f"Single Parents {family_str}")
+        colors.append('b')
+    
+    plt.figure(figsize=(8, 6))
+    if len(list_of_histograms) in {1,2}:
+        # Plot only the complete network (if there are 1 or 2 categories present, 
+        # the other category will match)
+        for i in range(len(list_of_labels)):
+            if list_of_labels[i].find("Complete Network") != -1:
+                plt.hist(list_of_histograms[i], bins=bins, color = colors[i], density=True)
+                plt.xlabel("Number of Children")
+                plt.ylabel("Percentage of Network")
+                plt.title(list_of_labels[i])
+    elif len(list_of_histograms) > 2:
+        # If there are 2 "other" categories than complete network, make a 2x2 grid
+        # of figures to make room, and plot all of the nonempty categories 
+        # that are present.
+        for i in range(len(list_of_histograms)):
+            plt.subplot(2,2,i+1)
+            plt.title(list_of_labels[i])
+            plt.hist(list_of_histograms[i], bins=bins, color=colors[i], density=True)
+            plt.xlabel("Number of Children")
+            plt.ylabel("Percentage of Network")
+    
+    # Format the plot's title
+    plt.tight_layout(h_pad=0.85, w_pad=0.85,rect=[0, 0.03, 1, 0.95])
+    plt.suptitle(f"{network_name}: Children per Family")
+    plt.rcParams['text.usetex'] = False
+
+    # Save the figure as another page in the indicated .pdf file
+    pdf.savefig()
+
+    # Show the plot
+    # plt.show()
+
+    # Close the plot
+    plt.close()
+
+
+
 
 ###### FUNCTIONS USED TO CREATE/ANALYZE NETWORK STRUCTURES ############
 # TODO FINISH THESE
@@ -313,43 +439,53 @@ def main():
     print("Getting children distributions . . .")
     sorted_graph_names = get_paj_file_names()
 
-    #### 2) Iterate over each of these .paj files, and parse their data
-    for graph_name in sorted_graph_names:
-        ### 2a) Get the marriage/parent-child tuples from the .paj file
-        children_tuple_list = get_children_tuples(graph_name)
-        marriage_tuple_list = get_marriage_tuples(graph_name)
+    # Create and populate a multi-page PDF with all of the children distributions throughout this process
+    with PdfPages('../Parsed_Data/Children_Distributions/Histograms/Children_Distributions.pdf') as pdf:
+        #### 2) Iterate over each of these .paj files, and parse their data
+        total_length = len(sorted_graph_names)
+        for i,graph_name in enumerate(sorted_graph_names):
+            print(f"Graph Number: {i+1}/{total_length}", end='\r')
+            ### 2a) Get the marriage/parent-child tuples from the .paj file
+            children_tuple_list = get_children_tuples(graph_name)
+            marriage_tuple_list = get_marriage_tuples(graph_name)
 
-        ### 2b) Get the distributions for the number of children per family 
-        ###     (in a variety of different family circumstances)
-        distributions = get_children_distributions(children_tuple_list, marriage_tuple_list)
-        complete_dist = distributions[0]
-        married_parent_dist = distributions[1]
-        unmarried_parent_dist = distributions[2]
-        single_parent_dist = distributions[3]
+            ### 2b) Get the distributions for the number of children per family 
+            ###     (in a variety of different family circumstances)
+            distributions = get_children_distributions(children_tuple_list, marriage_tuple_list)
+            complete_dist = distributions[0]
+            married_parent_dist = distributions[1]
+            unmarried_parent_dist = distributions[2]
+            single_parent_dist = distributions[3]
 
-        ### 2c) Output each of these distributions as a string to a .txt file
-        ###     for further parsing 
-        OUTPUT_DIRECTORY = os.path.join(os.path.dirname(__file__),'../Parsed_Data/Children_Distributions')
-        name_without_ext = os.path.splitext(graph_name)[0]
-        name_without_ext = "-".join(name_without_ext.split("-")[1:-1])
+            ### 2c) Plot the distributions found above on the same axis, with the graph title,
+            ###     on their own page in the output .pdf file
+            name_without_ext = os.path.splitext(graph_name)[0]
+            name_without_ext = "-".join(name_without_ext.split("-")[1:-1])
+            plot_child_histograms(name_without_ext, pdf, complete_dist, married_parent_dist, unmarried_parent_dist, single_parent_dist)
 
-        complete_dist_file = os.path.join(OUTPUT_DIRECTORY, f'Complete_Distributions/{name_without_ext}.txt')
-        with open(complete_dist_file, 'w') as out_file:
-            out_file.write(str(complete_dist))
 
-        married_dist_file = os.path.join(OUTPUT_DIRECTORY, f'Married_Couple_Distributions/{name_without_ext}.txt')
-        with open(married_dist_file, 'w') as out_file:
-            out_file.write(str(married_parent_dist))
-        
-        unmarried_dist_file = os.path.join(OUTPUT_DIRECTORY, f'Unmarried_Couple_Distributions/{name_without_ext}.txt')
-        with open(unmarried_dist_file, 'w') as out_file:
-            out_file.write(str(unmarried_parent_dist))
-        
-        single_dist_file = os.path.join(OUTPUT_DIRECTORY, f'Single_Parent_Distributions/{name_without_ext}.txt')
-        with open(single_dist_file, 'w') as out_file:
-            out_file.write(str(single_parent_dist))
+            ########## .TXT FILE OUTPUT - USED IF NOT PROGRAMMATICALLY INTERACTING ############
+            ########## WITH THE DISTRIBUTIONS ##########
+            # ### 2d) Output each of these distributions as a string to a .txt file
+            # ###     for further parsing 
+            # OUTPUT_DIRECTORY = os.path.join(os.path.dirname(__file__),'../Parsed_Data/Children_Distributions')
+            # complete_dist_file = os.path.join(OUTPUT_DIRECTORY, f'Complete_Distributions/{name_without_ext}.txt')
+            # with open(complete_dist_file, 'w') as out_file:
+            #     out_file.write(str(complete_dist))
 
-    print("Done.")
+            # married_dist_file = os.path.join(OUTPUT_DIRECTORY, f'Married_Couple_Distributions/{name_without_ext}.txt')
+            # with open(married_dist_file, 'w') as out_file:
+            #     out_file.write(str(married_parent_dist))
+            
+            # unmarried_dist_file = os.path.join(OUTPUT_DIRECTORY, f'Unmarried_Couple_Distributions/{name_without_ext}.txt')
+            # with open(unmarried_dist_file, 'w') as out_file:
+            #     out_file.write(str(unmarried_parent_dist))
+            
+            # single_dist_file = os.path.join(OUTPUT_DIRECTORY, f'Single_Parent_Distributions/{name_without_ext}.txt')
+            # with open(single_dist_file, 'w') as out_file:
+            #     out_file.write(str(single_parent_dist))
+
+    print("\nDone.")
 
 if __name__ == "__main__":
     main()
