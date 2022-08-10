@@ -15,42 +15,19 @@ import os
 import regex as re
 
 
-# ??? TODO:  threw this error for me with name='anuta_1972'
-#            SHOULD BE MADE TO WORK WITH LINUX OR WINDOWS
-# ---------------------------------------------------------------------------
-# FileNotFoundError                         Traceback (most recent call last)
-# Input In [49], in <cell line: 1>()
-# ----> 1 output_path = makeOutputDirectory("output", name)
-#
-# Input In [48], in makeOutputDirectory(out_directory, name)
-#      18             i += 1
-#      19             full_output_path += f"_{i}"
-# ---> 20 os.mkdir(full_output_path)
-#      21 return full_output_path
-#
-# FileNotFoundError: [WinError 3] The system cannot find the path specified: 'output\\anuta_1972'
 def makeOutputDirectory(out_directory, name):
-    """Make an output directory to keep things cleaner
+    """
+    Make an output directory to keep things cleaner
 
-    Returns a full output path to the new directory"""
-    full_output_path = os.path.join(out_directory, name)
-    full_output_path = out_directory + "/" + name
-    if os.path.exists(full_output_path):
-        i = 1
-        done = False
-        full_output_path = full_output_path + f"_{i}"
-
-        # Iterate until we have a unique directory name and make it
-        while not done:
-            if not os.path.exists(full_output_path):
-                done = True
-            else:
-                num_digits_to_remove = len(str(i)) + 1      # The + 1 is for the underscore
-                full_output_path = full_output_path[:-num_digits_to_remove]
-                i += 1
-                full_output_path += f"_{i}"
-    os.mkdir(full_output_path)
-    return full_output_path
+    Returns a full output path to the new directory
+    """
+    ver = 1
+    output_dir = os.path.join(out_directory, name + '_')
+    while os.path.exists(output_dir+str(ver)):
+        ver += 1
+    output_dir += str(ver)
+    os.makedirs(output_dir)
+    return output_dir
 
 
 def get_graph_path(name, path='../Original_Sources/'):
@@ -199,7 +176,7 @@ def get_probabilities(data, bandwidth=1):
 # TODO: it would be better to make this accept marriage_probs as an argument rather than
 #       using marraige_probs as a global argument, right?
 # TODO: need to make it so that the model runs, saves, and exits with an error message if people should ever be an empty list
-def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigrant, prob_marry, D, indices):
+def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigrant, prob_marry, D, indices, tol=1e-7):
     """
     Forms both infinite and finite distance marriages in the current generation
     PARAMETERS:
@@ -228,7 +205,16 @@ def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigran
             2) finite distance couples: both spouses are members of the
             community (IE listed in people).  These couples are selected at
             random according to the marriage_probs)
+        num_immigrants: (int) the number of NEW people added to the graph.  As
+            implemented ALL new people get married to someone in the current
+            generation (herein people)
+        marriage_distances: (list of int) one entry per marriage created during
+            this function call (IE within this generation).  Each entry
+            indicates the distance between spouses through their nearest common
+            ancestor.  As before, a distnace of -1 indicates an infinite
+            distance (IE one spouse immigrated into the community)
     """
+    marriage_distances = []
     print(people)
     people_set = set(people)  # for fast removal later
     # find the next 'name' to add to your set of people
@@ -242,6 +228,8 @@ def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigran
                                            range(next_person, next_person + num_immigrants))}
     # remove the married people from the pool #2ndManifesto
     people_set = people_set - set(marry_strangers)
+    # and record the (infinite) distances of each marriage
+    marriage_distances += [-1 for k in range(num_immigrants)]
 
     # get number of people to marry
     num_couples_to_marry = round(len(people_set)*prob_marry/2)
@@ -262,12 +250,15 @@ def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigran
 
         possible_couples_array = np.array(list(possible_couples.keys()))
         dis_probs = np.array([finite_marriage_probs[d] for d in possible_couples.values()])
-        dis_probs = dis_probs / np.sum(dis_probs)
-        # choose couple based on relative probability of distances
+        dis_probs[np.abs(dis_probs) < tol] = 0  # prevent "negative zeros"
+        dis_probs = dis_probs / np.sum(dis_probs)  # normalize
 
+        # choose couple based on relative probability of distances
         couple_index = np.random.choice(np.arange(len(possible_couples)), p=dis_probs)
         couple = possible_couples_array[couple_index]
         unions.add(tuple(couple))
+        # and save the distance of that couple
+        marriage_distances += [int(D[indices[couple[0]], indices[couple[1]]])]
 
         # remove all possible pairings which included either of the now-married couple
         possible_couples = {pair:possible_couples[pair]
@@ -283,7 +274,7 @@ def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigran
         # test4 = [k for k in possible_couples if k[1] == couple[1]]
         # if test1 or test2 or test3 or test4:
         #     print("missed some possibilities")
-    return unions, num_immigrants
+    return unions, num_immigrants, marriage_distances
 
 
 def add_children_edges_kolton(unions, num_people, child_probs, indices):
@@ -435,10 +426,10 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
         num_children_per_couple:
     """
 
-    # ??? see comment above makeOutputDirectory().
-    #     uncomment out when that function works as desired
-    # output_path = makeOutputDirectory("output", name)
-    output_path = './test'
+    output_path = makeOutputDirectory("output", name)
+    all_marriage_edges = []
+    all_marriage_distances = []
+    all_children_per_couple = []
 
     G = nx.Graph()
     # num_finite_dist = round(num_people * prob_finite_marriage)
@@ -482,8 +473,10 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
         # create unions between nodes to create next generation
         #unions, no_unions, all_unions, n, m, infdis, indices = add_marriage_edges(all_fam, all_unions, D, marriage_probs, p, ncp, n, infdis, indices)
 
-        unions, num_immigrants = kolton_add_marriage_edges(generation_of_people, finite_marriage_probs, prob_inf_marriage, prob_finite_marriage, D, indices)
+        unions, num_immigrants, marriage_distances = kolton_add_marriage_edges(generation_of_people, finite_marriage_probs, prob_inf_marriage, prob_finite_marriage, D, indices)
         G.add_edges_from(unions)
+        all_marriage_edges += list(unions)
+        all_marriage_distances += marriage_distances
 
         # for j in range(num_immigrants):
         #     # add non-connected people to distance matrix
@@ -507,6 +500,8 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
 
         # add children to each marriage
         child_edges, families, num_people, num_children_per_couple, indices = add_children_edges_kolton(unions, num_people, child_probs, indices)
+        G.add_edges_from(child_edges)
+        all_children_per_couple += list(num_children_per_couple)
 
         # update distances between nodes
         D, indices = update_distances_kolton(D, num_people, unions, families, indices)
@@ -514,17 +509,18 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
 
         print('generation: ', i)
 
-        # save output at each generation
-        Gname = Gname = "{}/{}_G{}.gpickle".format(output_path, name, i)   # save graph
-        nx.write_gpickle(G, Gname)
-        Dname = "{}/{}_D{}.npy".format(output_path, name, i)   # save D
-        np.save(Dname, D)
-        Uname = "{}/{}__U{}".format(output_path, name, i)   # save unions
-        with open(Uname, 'wb') as fup:
-            pickle.dump(unions, fup)
-        Cname = "{}/{}_C{}".format(output_path, name, i)   # save children
-        with open(Cname, 'wb') as fcp:
-            pickle.dump(num_children_per_couple, fcp)
+        # ??? save output at each generation
+    Gname = Gname = "{}/{}_G.gpickle".format(output_path, name)   # save graph
+    nx.write_gpickle(G, Gname)
+    Uname = "{}/{}_marriage_edges".format(output_path, name)   # save unions
+    with open(Uname, 'wb') as fup:
+        pickle.dump(all_marriage_edges, fup)
+    Dname = "{}/{}_marriage_distances".format(output_path, name) # save marriage distances
+    with open(Dname, 'wb') as myfile:
+        pickle.dump(all_marriage_distances, myfile)
+    Cname = "{}/{}_children_per_couple".format(output_path, name)   # save children
+    with open(Cname, 'wb') as fcp:
+        pickle.dump(all_children_per_couple, fcp)
 
         # # save output of the last generation
         # if i == gen:
@@ -542,7 +538,7 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
         #     with open(Cname, 'wb') as fcp:
         #         pickle.dump(all_children, fcp)
 
-    return G, D, unions, num_children_per_couple
+    return G, all_marriage_edges, all_marriage_distances, all_children_per_couple
 
 
 """
@@ -551,6 +547,6 @@ below is example code to run the model
 #
 # name = 'tikopia_1930'
 # num_people = 50
-# num_gens = 20
+# num_gens = 10
 # marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist = get_graph_stats(name)
-# human_family_network(num_people, num_gens, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name)
+# G, all_marriage_edges, all_marriage_distances, all_children_per_couple = human_family_network(num_people, num_gens, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name)
