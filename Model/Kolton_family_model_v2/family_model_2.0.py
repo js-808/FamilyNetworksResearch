@@ -431,7 +431,7 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
     all_marriage_distances = []
     all_children_per_couple = []
 
-    G = nx.Graph()
+    G = nx.DiGraph()
     # num_finite_dist = round(num_people * prob_finite_marriage)
     # num_inf_dist = round(num_people * prob_inf_marriage)
     # num_single = num_people - num_finite_dist - num_inf_dist
@@ -472,9 +472,13 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
     for i in range(num_gens):
         # create unions between nodes to create next generation
         #unions, no_unions, all_unions, n, m, infdis, indices = add_marriage_edges(all_fam, all_unions, D, marriage_probs, p, ncp, n, infdis, indices)
-
+        if len(generation_of_people) == 0:
+            break
         unions, num_immigrants, marriage_distances = kolton_add_marriage_edges(generation_of_people, finite_marriage_probs, prob_inf_marriage, prob_finite_marriage, D, indices)
-        G.add_edges_from(unions)
+        # marriage edges should be undirected
+        # ??? TODO should we add both directions in?  We will be able to grab just "Marriage" edges and then undirect this graph equivalently
+        G.add_edges_from(unions, Relationship="Marriage")
+
         all_marriage_edges += list(unions)
         all_marriage_distances += marriage_distances
 
@@ -500,7 +504,7 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
 
         # add children to each marriage
         child_edges, families, num_people, num_children_per_couple, indices = add_children_edges_kolton(unions, num_people, child_probs, indices)
-        G.add_edges_from(child_edges)
+        G.add_edges_from(child_edges, Relationship='Parent-Child')
         all_children_per_couple += list(num_children_per_couple)
 
         # update distances between nodes
@@ -547,6 +551,7 @@ below is example code to run the model
 #
 # name = 'tikopia_1930'
 # num_people = 50
-# num_gens = 10
+# num_gens = 20
 # marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist = get_graph_stats(name)
 # G, all_marriage_edges, all_marriage_distances, all_children_per_couple = human_family_network(num_people, num_gens, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name)
+#
