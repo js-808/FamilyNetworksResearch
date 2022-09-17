@@ -5,8 +5,11 @@ import operator
 import numpy as np
 import ast
 from scipy import stats
+
+from scipy.stats import gaussian_kde
 from sklearn.neighbors import KernelDensity as KDE
 from scipy import interpolate
+
 import itertools
 import pickle
 from time import time
@@ -94,6 +97,7 @@ def get_graph_stats(name, distance_path='./Kolton_distances/', child_number_path
             by total number of marriages in the specified dataset
         children_dist: (list of int) one entry per pair of parents, indicating
             how many child edges each parent in the couple share
+        num_people: (int) total number of nodes in the graph named.
     """
     with open(distance_path + '{}.txt'.format(name)) as infile:
         marriage_dists, num_inf_marriages, fraction_inf_marriage = [ast.literal_eval(k.strip()) for k in infile.readlines()]
@@ -109,28 +113,28 @@ def get_graph_stats(name, distance_path='./Kolton_distances/', child_number_path
     prob_inf_marriage = prob_marriage * fraction_inf_marriage
     prob_finite_marriage = prob_marriage - prob_inf_marriage
 
-    return marriage_dists, num_marriages, prob_inf_marriage, prob_finite_marriage, children_dist
+    return marriage_dists, num_marriages, prob_inf_marriage, prob_finite_marriage, children_dist, num_people
 
 
-def to_KDE(data, bandwidth, kernel='gaussian'):
-    """
-    given a list (either of distances to marriage for a marriage distribution or
-    numbers of children for a children distribution), to_KDE() uses kernel
-    density estimation to smooth out the histogram/distribution of values in data.
-    PARAMETERS:
-        data (list): data taken from an actual family network
-        bandwidth (int):  the std deviation of each kernel in the sum (see
-            documentation)
-        kernel (str): the shape of the distribution to be used.  default is
-            normal distribution
-    RETURNS:
-        sklearn.neighbors.KernelDensity (object) which has been fit to the
-            supplied data.  The resulting object is a 'smoother' version of the
-            supplied discrete histogram from which samples may be drawn without
-            regard to whether or not a specific value in the number line occurred
-            in the sample dataset
-    """
-    return KDE(kernel=kernel, bandwidth=bandwidth).fit(np.array(data).reshape(-1,1))
+# def to_KDE(data, bandwidth, kernel='gaussian'):
+#     """
+#     given a list (either of distances to marriage for a marriage distribution or
+#     numbers of children for a children distribution), to_KDE() uses kernel
+#     density estimation to smooth out the histogram/distribution of values in data.
+#     PARAMETERS:
+#         data (list): data taken from an actual family network
+#         bandwidth (int):  the std deviation of each kernel in the sum (see
+#             documentation)
+#         kernel (str): the shape of the distribution to be used.  default is
+#             normal distribution
+#     RETURNS:
+#         sklearn.neighbors.KernelDensity (object) which has been fit to the
+#             supplied data.  The resulting object is a 'smoother' version of the
+#             supplied discrete histogram from which samples may be drawn without
+#             regard to whether or not a specific value in the number line occurred
+#             in the sample dataset
+#     """
+#     return KDE(kernel=kernel, bandwidth=bandwidth).fit(np.array(data).reshape(-1,1))
 
 
 def get_probabilities(data, bandwidth=1):
@@ -154,24 +158,32 @@ def get_probabilities(data, bandwidth=1):
         probs (dictionary): keys are the entries of data and successive values,
             too (we lengthen the right tail of the distribution).
     """
-    # ??? should this data list NOT contain the infinite entries?
-    #     currently includes infinite entries (under key 999)
-    #     would it be better to have infinity represented as a distance of 0?
+    # # ??? should this data list NOT contain the infinite entries?
+    # #     currently includes infinite entries (under key 999)
+    # #     would it be better to have infinity represented as a distance of 0?
+    # data = np.array(data)
+    # data = data[data > -1]  # only use the non-infinite distances
+    # kde = to_KDE(data, bandwidth)
+    # domain = np.arange(min(data)-1, max(data)+1000, 1)  # ??? shouldn't I go from 0 to inf or from 2 to inf all the time?
+    # domain = domain[:, np.newaxis]
+    # logs = kde.score_samples(domain)
+    # y = np.exp(logs)
+    #
+    # # fit spline (IE fit equation to density curve to then be able to integrate)
+    # spl = interpolate.InterpolatedUnivariateSpline(domain, y)
+    #
+    # # create a dictionary of probabilities by integrating the density curve
+    # probs = {i:spl.integral(i-0.5, i+0.5) for i in range(min(data), max(data)+1000)}
+    # return probs
     data = np.array(data)
     data = data[data > -1]  # only use the non-infinite distances
-    kde = to_KDE(data, bandwidth)
     domain = np.arange(min(data)-1, max(data)+1000, 1)  # ??? shouldn't I go from 0 to inf or from 2 to inf all the time?
-    domain = domain[:, np.newaxis]
-    logs = kde.score_samples(domain)
-    y = np.exp(logs)
 
-    # fit spline (IE fit equation to density curve to then be able to integrate)
-    spl = interpolate.InterpolatedUnivariateSpline(domain, y)
-
-    # create a dictionary of probabilities by integrating the density curve
-    probs = {i:spl.integral(i-0.5, i+0.5) for i in range(min(data), max(data)+1000)}
-
+    kde = gaussian_kde(data, bw_method=bandwidth)
+    # probs = {x:kde2.integrate_box_1d(-np.inf, x) for x in domain}  # CDF, discretized
+    probs = {x:kde2.integrate_box_1d(x-0.5, x+0.5) for x in domain}
     return probs
+
 
 # TODO: it would be better to make this accept marriage_probs as an argument rather than
 #       using marraige_probs as a global argument, right?
@@ -215,7 +227,7 @@ def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigran
             distance (IE one spouse immigrated into the community)
     """
     marriage_distances = []
-    print(people)
+    #print(people)
     people_set = set(people)  # for fast removal later
     # find the next 'name' to add to your set of people
     next_person = np.max(people) + 1
@@ -400,13 +412,11 @@ def update_distances_kolton(D, n, unions, families, indices):
 
 
 # TODO: what do we actually want this to return?
-def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marriage, prob_inf_marriage, children_dist, name):
+def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_inf_marriage, children_dist, name, when_to_stop=np.inf, num_gens=np.inf):
     """
     PARAMETERS:
         num_people (int): number of people (nodes) to include in initial
             generation
-        num_gens (int): number of generations for network to grow beyond the
-            initial generation
         marriage_dists: (list of int) one entry per marriage indicating how many
             generations between spouses (reported in the number of parent-child
             edges crossed so that distance between siblings is 2) in the
@@ -419,6 +429,14 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
         children_dist: (list of int) one entry per pair of parents, indicating
             how many child edges each parent in the couple share
         name: (str) name for prefix of saved files
+        when_to_stop: (int) target number of nodes to capture.  If supplied, the
+            model will run until this target number of nodes (all together, not
+            just the size of the current generation) is surpassed.
+        num_gens (int): max number of generations for network to grow beyond the
+            initial generation.  Default is np.inf.  If np.inf, then the model
+            will run until the number of nodes in the example network is
+            surpassed and then stop.
+
     RETURNS:
         G:
         D:
@@ -468,8 +486,11 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
     # sum(child_probs.values())
     # sum(child_probs2.values())
     # add specified number of generations to the network
+    print("generation 0: num_people ", num_people)
+    i = 1
+    while (num_people < when_to_stop) & (i < num_gens):
 
-    for i in range(num_gens):
+        # for i in range(num_gens):
         # create unions between nodes to create next generation
         #unions, no_unions, all_unions, n, m, infdis, indices = add_marriage_edges(all_fam, all_unions, D, marriage_probs, p, ncp, n, infdis, indices)
         if len(generation_of_people) == 0:
@@ -511,7 +532,8 @@ def human_family_network(num_people, num_gens, marriage_dist, prob_finite_marria
         D, indices = update_distances_kolton(D, num_people, unions, families, indices)
         generation_of_people = list(indices.keys())
 
-        print('generation: ', i)
+        print('generation: ', i, '  num_children: ', len(generation_of_people), '   num_immigrants: ', num_immigrants, '   total people: ', num_people)
+        i += 1
 
         # ??? save output at each generation
     Gname = Gname = "{}/{}_G.gpickle".format(output_path, name)   # save graph
@@ -550,8 +572,12 @@ below is example code to run the model
 """
 #
 # name = 'tikopia_1930'
-# num_people = 50
-# num_gens = 20
-# marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist = get_graph_stats(name)
-# G, all_marriage_edges, all_marriage_distances, all_children_per_couple = human_family_network(num_people, num_gens, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name)
+# name = 'achuar_huasaga_chankuap'
+# num_people = 10
 #
+# # num_gens = 20
+# marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
+# G, all_marriage_edges, all_marriage_distances, all_children_per_couple = human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name, when_to_stop=size_goal)
+#
+# size_goal
+# G.number_of_nodes()
