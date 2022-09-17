@@ -12,10 +12,26 @@ import shlex
 import regex as re
 
 
+def content_list(graph_name):
+    """
+    returns list of rows from pajek file, used in other functions
+    """
+    # open and read graph file
+    with open(graph_name, 'r') as file:
+        contents = file.readlines()
+
+    # clean up graph file
+    for i in range(len(contents)):
+        contents[i] = contents[i].rstrip() # remove trailing whitespace
+    contents = np.array(contents)
+    noempties = [item != '' for item in contents] # get rid of elements with empty strings
+    return list(contents[noempties]) # turn it back into a list and return
+
+
 def separate_parts(graph_name,edge_type):
     """Count the number of edges in a pajek graph file.
            Parameters:
-               graph_name (str):
+               graph_name (str): full path to .paj file
                edge_type (str):
            Returns:
                nodes (list of lists): rows are people, columns are attributes
@@ -155,23 +171,6 @@ def get_graphs_and_names(path = '../Original_Sources',directed = False,sort = Fa
         return graph_list, graph_names
 
 
-def content_list(graph_name):
-    """
-    returns list of rows from pajek file, used in other functions
-    """
-    # open and read graph file
-    with open(graph_name, 'r') as file:
-        contents = file.readlines()
-
-    # clean up graph file
-    for i in range(len(contents)):
-        contents[i] = contents[i].rstrip() # remove trailing whitespace
-    contents = np.array(contents)
-    noempties = [item != '' for item in contents] # get rid of elements with empty strings
-    return list(contents[noempties]) # turn it back into a list and return
-
-
-
 def get_marriage_distances_kolton(G, marriage_edges, name='', plot=True, save=True):
     """
     finds the initial marriage distance distrubtion (IE distance to nearest
@@ -300,12 +299,43 @@ def build_marriage_hist_kolton(name, plot=True, save=True, path='../Original_Sou
     return distances, num_inf_marriages, percent_inf_marraiges
 
 
-def save_marriage_distance_txt_files():
+def find_children(g_num, graph_names):
+    """
+    Finds number of children per married couple in the graph
+    NOTE: this does not find children with only a single parent listed
+    """
+    # get all parts of graph
+    stuff = separate_parts(graph_names[g_num],'A')
+    # list of marriage edge tuples for the given graph
+    marriages = stuff[1]
+    # list of parent child edge tuples for the given graph
+    children = stuff[2]
+    count = []
+    # go through all marriage pairs
+    for i, m in enumerate(marriages):
+        # get parent nodes
+        p1, p2 = m
+        p1_list = set()
+        p2_list = set()
+        # find children of each parent node & count children node
+        for child in children:
+            if child[0] == p1:
+                p1_list.add(child[1])
+            elif child[0] == p2:
+                p2_list.add(child[1])
+        #intersection of p lists
+        c_list = p1_list.intersection(p2_list)
+        count.append(len(c_list))
+
+    return count
+
+
+def save_marriage_distance_txt_files(distance_path='./Kolton_distances/', child_number_path='../ChildrenNumber/'):
     graphs, graph_names = get_graphs_and_names(directed=True)
     name_pattern = re.compile("(?<=-).*(?=-)")
 
     count = 0  # number of graphs included in master histogram
-    master_distances = []
+    master_distances = []  # for aggregate histogram
     for name in graph_names:
         if name == "../Original_Sources/kinsources-warao-oregraph.paj":
             continue
@@ -314,7 +344,7 @@ def save_marriage_distance_txt_files():
         master_distances += distances
         count += 1
         try:
-            with open('./Kolton_distances/'+name+'.txt', 'w') as outfile:
+            with open(distance_path + name + '.txt', 'w') as outfile:
                 outfile.write(str(distances))
                 outfile.write('\n')
                 outfile.write(str(num_inf_marriages))
@@ -322,10 +352,16 @@ def save_marriage_distance_txt_files():
                 outfile.write(str(percent_inf_marraiges))
                 outfile.write('\n')
         except FileExistsError as e:
-            print("./Kolton_distances/' +" + name + "+'.txt'file exists.  Skipping. ")
+            print(distance_path + name + ".txt' file exists.  Skipping. ")
 
         g_num = graph_names.index('../Original_Sources/kinsources-'+name+'-oregraph.paj')
         vertex_names, marriage_edges, child_edges = separate_parts(graph_names[g_num], 'A')
+
+        # now save list of children per couple to a text file
+        children_per_couple = find_children(g_num, graph_names)
+        child_file = os.path.join(child_number_path, name+'_children.txt')
+        with open(child_file, 'w') as outfile:
+            outfile.write(str(children_per_couple))
 
     print("count: ", count )
     try:
@@ -333,4 +369,4 @@ def save_marriage_distance_txt_files():
             outfile.write(str(master_distances))
             outfile.write('\n')
     except FileExistsError as e:
-        print("./Kolton_distances/' +" + "master_distances_104"+ "+'.txt'file exists.  Skipping. ")
+        print("\'./Kolton_distances/master_distances_104.txt\' file exists.  Skipping. ")
