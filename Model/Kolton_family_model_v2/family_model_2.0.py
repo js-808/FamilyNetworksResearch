@@ -116,28 +116,7 @@ def get_graph_stats(name, distance_path='./Kolton_distances/', child_number_path
     return marriage_dists, num_marriages, prob_inf_marriage, prob_finite_marriage, children_dist, num_people
 
 
-# def to_KDE(data, bandwidth, kernel='gaussian'):
-#     """
-#     given a list (either of distances to marriage for a marriage distribution or
-#     numbers of children for a children distribution), to_KDE() uses kernel
-#     density estimation to smooth out the histogram/distribution of values in data.
-#     PARAMETERS:
-#         data (list): data taken from an actual family network
-#         bandwidth (int):  the std deviation of each kernel in the sum (see
-#             documentation)
-#         kernel (str): the shape of the distribution to be used.  default is
-#             normal distribution
-#     RETURNS:
-#         sklearn.neighbors.KernelDensity (object) which has been fit to the
-#             supplied data.  The resulting object is a 'smoother' version of the
-#             supplied discrete histogram from which samples may be drawn without
-#             regard to whether or not a specific value in the number line occurred
-#             in the sample dataset
-#     """
-#     return KDE(kernel=kernel, bandwidth=bandwidth).fit(np.array(data).reshape(-1,1))
-
-
-def get_probabilities(data, bandwidth=1):
+def get_probabilities(data, bandwidth=1, is_child=False):
     """
     given a list (either of distances to marriage for a marriage distribution or
     numbers of children for a children distribution), get_probabilities() produces
@@ -177,11 +156,18 @@ def get_probabilities(data, bandwidth=1):
     # return probs
     data = np.array(data)
     data = data[data > -1]  # only use the non-infinite distances
-    domain = np.arange(min(data)-1, max(data)+1000, 1)  # ??? shouldn't I go from 0 to inf or from 2 to inf all the time?
+    if is_child:  # IE is child
+        domain = np.arange(0, max(data)+1000, 1)
+    else:
+        # ??? I feel like marriage distances should always have all distances
+        #     possible, even the gross ones (IE we need to count from 2 not the
+        #     minimum distance seen in the dataset)
+        # domain = np.arange(2, max(data)+1000, 1)
+        domain = np.arange(min(data)-1, max(data)+1000, 1)  # ??? shouldn't I go from 0 to inf or from 2 to inf all the time?
 
     kde = gaussian_kde(data, bw_method=bandwidth)
     # probs = {x:kde2.integrate_box_1d(-np.inf, x) for x in domain}  # CDF, discretized
-    probs = {x:kde2.integrate_box_1d(x-0.5, x+0.5) for x in domain}
+    probs = {x:kde.integrate_box_1d(x-0.5, x+0.5) for x in domain}
     return probs
 
 
@@ -289,7 +275,7 @@ def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigran
     return unions, num_immigrants, marriage_distances
 
 
-def add_children_edges_kolton(unions, num_people, child_probs, indices):
+def add_children_edges_kolton(unions, num_people, child_probs):
     """
     PARAMETERS:
         unions: (list of tuple of int) marriages in the current generation
@@ -340,9 +326,15 @@ def add_children_edges_kolton(unions, num_people, child_probs, indices):
             families.append(children)
     # flatten the list of family edges
     child_edges = [edge for family in child_edges for edge in family]
-    max_ind = max(indices.values())
-    indices = indices | {child + num_people: ind for ind, child in zip(range(max_ind+1, max_ind+1+total_num_children), range(total_num_children))}
-    return child_edges, families, num_people + total_num_children, num_children_each_couple, indices
+    #max_ind = max(indices.values())
+    #indices = indices | {child + num_people: ind for ind, child in zip(range(max_ind+1, max_ind+1+total_num_children), range(total_num_children))}
+    return child_edges, families, num_people + total_num_children, num_children_each_couple
+
+
+sum(get_probabilities(marriage_dist).values())
+sum(get_probabilities(child_dist, is_child=True).values())
+sum(get_probabilities(child_dist).values())
+set(child_dist)
 
 
 def update_distances_kolton(D, n, unions, families, indices):
@@ -372,11 +364,12 @@ def update_distances_kolton(D, n, unions, families, indices):
     num_children = len([child for fam in families for child in fam])
     D1 = np.zeros((num_children, num_children))
     new_indices = {child:k for k, child in enumerate([child for fam in families for child in fam])}
+    check_indices(new_indices)
     # compute new distances
     unions = list(unions)
     # unions
-    # u, union = 1, (10,58)
-    # other = (19, 70)
+    # u, union = 0, (19, 43)
+    # other = (21, 35)
 
     for u, union in enumerate(unions):
         u_children = families[u]
@@ -407,8 +400,19 @@ def update_distances_kolton(D, n, unions, families, indices):
                 if ch != c:
                     D1[new_indices[ch]][new_indices[c]] = 2
                     D1[new_indices[c]][new_indices[ch]] = 2
-
     return D1, new_indices
+
+
+def check_indices(indices):
+    all_ok = True
+    min_child = min(indices.keys())
+    max_child = max(indices.keys())
+    for i in range(min_child, max_child-1,):
+        if indices[i]+1 != indices[i+1]:
+            all_ok = False
+            print([(k, indices[k]) for k in range(i-2, i+2)])
+    if all_ok:
+        print("indices ok")
 
 
 # TODO: what do we actually want this to return?
@@ -478,23 +482,22 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
     # marriage_probs[0] = 1 - prob_finite_marriage - prob_inf_marriage
 
     # ditto for the child distribution
-    child_probs = get_probabilities(child_dist)
+    child_probs = get_probabilities(child_dist, is_child=True)
     # ??? make probabilities non-negative (some entries are effectively zero, but negative)
     child_probs = {key:value if value > 0 else 0 for key, value in zip(child_probs.keys(), child_probs.values()) }
     child_probs = {key:value/sum(child_probs.values()) for key, value in zip(child_probs.keys(), child_probs.values())}
 
-    # sum(child_probs.values())
-    # sum(child_probs2.values())
     # add specified number of generations to the network
     print("generation 0: num_people ", num_people)
     i = 1
     while (num_people < when_to_stop) & (i < num_gens):
-
+        check_indices(indices)
         # for i in range(num_gens):
         # create unions between nodes to create next generation
         #unions, no_unions, all_unions, n, m, infdis, indices = add_marriage_edges(all_fam, all_unions, D, marriage_probs, p, ncp, n, infdis, indices)
         if len(generation_of_people) == 0:
             break
+        D.shape
         unions, num_immigrants, marriage_distances = kolton_add_marriage_edges(generation_of_people, finite_marriage_probs, prob_inf_marriage, prob_finite_marriage, D, indices)
         # marriage edges should be undirected
         # ??? TODO should we add both directions in?  We will be able to grab just "Marriage" edges and then undirect this graph equivalently
@@ -518,23 +521,53 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
             c = np.ones((len(generation_of_people) + j, 1)) * -1  # -1 is infinite distance
             D = np.hstack((D, c))
             D = np.vstack((D, r))
+
         max_ind = max(indices.values())
         indices = indices | {immigrant + num_people:ind for ind, immigrant in zip(range(max_ind + 1, max_ind+1+num_immigrants), range(num_immigrants))}
-
         num_people += num_immigrants
 
+        print('A')
+        check_indices(indices)
+        D0A = D.copy()
+        indices0A = indices.copy()
+        num_people0A = num_people
+
+        D = D0A.copy()
+        indices = indices0A.copy()
+        num_people = num_people0A
+        D.shape
+        len(indices)
         # add children to each marriage
-        child_edges, families, num_people, num_children_per_couple, indices = add_children_edges_kolton(unions, num_people, child_probs, indices)
+        child_edges, families, num_people, num_children_per_couple = add_children_edges_kolton(unions, num_people, child_probs)
         G.add_edges_from(child_edges, Relationship='Parent-Child')
         all_children_per_couple += list(num_children_per_couple)
 
+        print('B')
+        check_indices(indices)
+        D0B = D.copy()
+        indices0B = indices.copy()
+
+        D = D0B.copy()
+        indices = indices0B.copy()
+        D.shape
+        len(indices)
         # update distances between nodes
         D, indices = update_distances_kolton(D, num_people, unions, families, indices)
-        generation_of_people = list(indices.keys())
 
+
+        print('C')
+        check_indices(indices)
+
+        D0C = D.copy()
+        indices0C = indices.copy()
+
+        D = D0C.copy()
+        indices =indices0C.copy()
+
+        generation_of_people = list(indices.keys())
         print('generation: ', i, '  num_children: ', len(generation_of_people), '   num_immigrants: ', num_immigrants, '   total people: ', num_people)
         i += 1
-
+        G.number_of_nodes()
         # ??? save output at each generation
     Gname = Gname = "{}/{}_G.gpickle".format(output_path, name)   # save graph
     nx.write_gpickle(G, Gname)
@@ -572,12 +605,12 @@ below is example code to run the model
 """
 #
 # name = 'tikopia_1930'
-# name = 'achuar_huasaga_chankuap'
-# num_people = 10
-#
-# # num_gens = 20
-# marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
-# G, all_marriage_edges, all_marriage_distances, all_children_per_couple = human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name, when_to_stop=size_goal)
-#
+name = 'achuar_huasaga_chankuap'
+num_people = 10
+
+# num_gens = 20
+marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
+G, all_marriage_edges, all_marriage_distances, all_children_per_couple = human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name, when_to_stop=size_goal)
+
 # size_goal
 # G.number_of_nodes()
