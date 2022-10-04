@@ -174,6 +174,11 @@ def get_probabilities(data, bandwidth=1, is_child=False):
 # TODO: it would be better to make this accept marriage_probs as an argument rather than
 #       using marraige_probs as a global argument, right?
 # TODO: need to make it so that the model runs, saves, and exits with an error message if people should ever be an empty list
+people=generation_of_people
+prob_marry_immigrant = prob_inf_marriage
+prob_marry = prob_finite_marriage
+
+
 def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigrant, prob_marry, D, indices, tol=1e-7):
     """
     Forms both infinite and finite distance marriages in the current generation
@@ -220,7 +225,7 @@ def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigran
     # number of non-connected people to add
     num_immigrants = round(prob_marry_immigrant * len(people))  # m
     # marry off the immigrants at random to nodes in the current generation
-    marry_strangers = np.random.choice(people, size=num_immigrants)
+    marry_strangers = np.random.choice(people, size=num_immigrants, replace=False)
     unions = {(spouse, immigrant) for spouse, immigrant
                                     in zip(marry_strangers,
                                            range(next_person, next_person + num_immigrants))}
@@ -463,6 +468,10 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
     D = d + d.T
     indices = {node:k for k, node in enumerate(range(num_people))}
     generation_of_people = list(indices.values())
+    # explicitly add our first generation of nodes (otherwise we will fail to
+    # add those who do not marry into our graph).  All future generations are
+    # connected either through marriage or through parent-child arcs
+    G.add_nodes_from(generation_of_people)
     # get probabilities of possible finite distances to use in marriage function
     # and normalize it
     finite_marriage_probs = get_probabilities(marriage_dist)
@@ -491,28 +500,19 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
     print("generation 0: num_people ", num_people)
     i = 1
     while (num_people < when_to_stop) & (i < num_gens):
-        check_indices(indices)
+        # check_indices(indices)
+
         # for i in range(num_gens):
         # create unions between nodes to create next generation
         #unions, no_unions, all_unions, n, m, infdis, indices = add_marriage_edges(all_fam, all_unions, D, marriage_probs, p, ncp, n, infdis, indices)
         if len(generation_of_people) == 0:
             break
-        D.shape
         unions, num_immigrants, marriage_distances = kolton_add_marriage_edges(generation_of_people, finite_marriage_probs, prob_inf_marriage, prob_finite_marriage, D, indices)
         # marriage edges should be undirected
         # ??? TODO should we add both directions in?  We will be able to grab just "Marriage" edges and then undirect this graph equivalently
         G.add_edges_from(unions, Relationship="Marriage")
-
         all_marriage_edges += list(unions)
         all_marriage_distances += marriage_distances
-
-        # for j in range(num_immigrants):
-        #     # add non-connected people to distance matrix
-        #     r = np.ones((1, num_people + 1 + j)) * -1  # -1 is infinite distance
-        #     r[0, -1] = 0  # distance to self is 0
-        #     c = np.ones((num_people + j, 1)) * -1  # -1 is infinite distance
-        #     D = np.hstack((D, c))
-        #     D = np.vstack((D, r))
 
         for j in range(num_immigrants):
             # add non-connected people to distance matrix
@@ -526,48 +526,47 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
         indices = indices | {immigrant + num_people:ind for ind, immigrant in zip(range(max_ind + 1, max_ind+1+num_immigrants), range(num_immigrants))}
         num_people += num_immigrants
 
-        print('A')
-        check_indices(indices)
-        D0A = D.copy()
-        indices0A = indices.copy()
-        num_people0A = num_people
+        # print('A')
+        # check_indices(indices)
+        # D0A = D.copy()
+        # indices0A = indices.copy()
+        # num_people0A = num_people
+        #
+        # D = D0A.copy()
+        # indices = indices0A.copy()
+        # num_people = num_people0A
+        # D.shape
+        # len(indices)
 
-        D = D0A.copy()
-        indices = indices0A.copy()
-        num_people = num_people0A
-        D.shape
-        len(indices)
         # add children to each marriage
         child_edges, families, num_people, num_children_per_couple = add_children_edges_kolton(unions, num_people, child_probs)
         G.add_edges_from(child_edges, Relationship='Parent-Child')
         all_children_per_couple += list(num_children_per_couple)
 
-        print('B')
-        check_indices(indices)
-        D0B = D.copy()
-        indices0B = indices.copy()
+        # print('B')
+        # check_indices(indices)
+        # D0B = D.copy()
+        # indices0B = indices.copy()
+        #
+        # D = D0B.copy()
+        # indices = indices0B.copy()
+        # D.shape
+        # len(indices)
 
-        D = D0B.copy()
-        indices = indices0B.copy()
-        D.shape
-        len(indices)
         # update distances between nodes
         D, indices = update_distances_kolton(D, num_people, unions, families, indices)
 
-
-        print('C')
-        check_indices(indices)
-
-        D0C = D.copy()
-        indices0C = indices.copy()
-
-        D = D0C.copy()
-        indices =indices0C.copy()
+        # print('C')
+        # check_indices(indices)
+        # D0C = D.copy()
+        # indices0C = indices.copy()
+        # D = D0C.copy()
+        # indices =indices0C.copy()
 
         generation_of_people = list(indices.keys())
         print('generation: ', i, '  num_children: ', len(generation_of_people), '   num_immigrants: ', num_immigrants, '   total people: ', num_people)
         i += 1
-        G.number_of_nodes()
+        print(G.number_of_nodes())
         # ??? save output at each generation
     Gname = Gname = "{}/{}_G.gpickle".format(output_path, name)   # save graph
     nx.write_gpickle(G, Gname)
@@ -604,7 +603,7 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
 below is example code to run the model
 """
 #
-# name = 'tikopia_1930'
+#name = 'tikopia_1930'
 name = 'achuar_huasaga_chankuap'
 num_people = 10
 
