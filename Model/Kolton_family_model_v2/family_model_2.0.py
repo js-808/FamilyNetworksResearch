@@ -174,9 +174,9 @@ def get_probabilities(data, bandwidth=1, is_child=False):
 # TODO: it would be better to make this accept marriage_probs as an argument rather than
 #       using marraige_probs as a global argument, right?
 # TODO: need to make it so that the model runs, saves, and exits with an error message if people should ever be an empty list
-people=generation_of_people
-prob_marry_immigrant = prob_inf_marriage
-prob_marry = prob_finite_marriage
+# people=generation_of_people
+# prob_marry_immigrant = prob_inf_marriage
+# prob_marry = prob_finite_marriage
 
 
 def kolton_add_marriage_edges(people, finite_marriage_probs, prob_marry_immigrant, prob_marry, D, indices, tol=1e-7):
@@ -336,10 +336,10 @@ def add_children_edges_kolton(unions, num_people, child_probs):
     return child_edges, families, num_people + total_num_children, num_children_each_couple
 
 
-sum(get_probabilities(marriage_dist).values())
-sum(get_probabilities(child_dist, is_child=True).values())
-sum(get_probabilities(child_dist).values())
-set(child_dist)
+# sum(get_probabilities(marriage_dist).values())
+# sum(get_probabilities(child_dist, is_child=True).values())
+# sum(get_probabilities(child_dist).values())
+# set(child_dist)
 
 
 def update_distances_kolton(D, n, unions, families, indices):
@@ -369,7 +369,9 @@ def update_distances_kolton(D, n, unions, families, indices):
     num_children = len([child for fam in families for child in fam])
     D1 = np.zeros((num_children, num_children))
     new_indices = {child:k for k, child in enumerate([child for fam in families for child in fam])}
-    check_indices(new_indices)
+
+    # check_indices(new_indices)
+
     # compute new distances
     unions = list(unions)
     # unions
@@ -603,9 +605,9 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
 below is example code to run the model
 """
 #
-#name = 'tikopia_1930'
-name = 'achuar_huasaga_chankuap'
-num_people = 10
+name = 'tikopia_1930'
+# name = 'achuar_huasaga_chankuap'
+num_people = 50
 
 # num_gens = 20
 marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
