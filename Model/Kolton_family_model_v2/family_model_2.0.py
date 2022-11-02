@@ -423,7 +423,7 @@ def check_indices(indices):
 
 
 # TODO: what do we actually want this to return?
-def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_inf_marriage, children_dist, name, when_to_stop=np.inf, num_gens=np.inf):
+def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_inf_marriage, children_dist, name, when_to_stop=np.inf, num_gens=np.inf, save=True):
     """
     PARAMETERS:
         num_people (int): number of people (nodes) to include in initial
@@ -454,8 +454,8 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
         unions:
         num_children_per_couple:
     """
+    dies_out = False
 
-    output_path = makeOutputDirectory("output", name)
     all_marriage_edges = []
     all_marriage_distances = []
     all_children_per_couple = []
@@ -493,7 +493,7 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
     # marriage_probs[0] = 1 - prob_finite_marriage - prob_inf_marriage
 
     # ditto for the child distribution
-    child_probs = get_probabilities(child_dist, is_child=True)
+    child_probs = get_probabilities(children_dist, is_child=True)
     # ??? make probabilities non-negative (some entries are effectively zero, but negative)
     child_probs = {key:value if value > 0 else 0 for key, value in zip(child_probs.keys(), child_probs.values()) }
     child_probs = {key:value/sum(child_probs.values()) for key, value in zip(child_probs.keys(), child_probs.values())}
@@ -508,6 +508,7 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
         # create unions between nodes to create next generation
         #unions, no_unions, all_unions, n, m, infdis, indices = add_marriage_edges(all_fam, all_unions, D, marriage_probs, p, ncp, n, infdis, indices)
         if len(generation_of_people) == 0:
+            dies_out = True
             break
         unions, num_immigrants, marriage_distances = kolton_add_marriage_edges(generation_of_people, finite_marriage_probs, prob_inf_marriage, prob_finite_marriage, D, indices)
         # marriage edges should be undirected
@@ -568,19 +569,21 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
         generation_of_people = list(indices.keys())
         print('generation: ', i, '  num_children: ', len(generation_of_people), '   num_immigrants: ', num_immigrants, '   total people: ', num_people)
         i += 1
-        print(G.number_of_nodes())
+        print('number of nodes in graph: ', G.number_of_nodes())
         # ??? save output at each generation
-    Gname = Gname = "{}/{}_G.gpickle".format(output_path, name)   # save graph
-    nx.write_gpickle(G, Gname)
-    Uname = "{}/{}_marriage_edges".format(output_path, name)   # save unions
-    with open(Uname, 'wb') as fup:
-        pickle.dump(all_marriage_edges, fup)
-    Dname = "{}/{}_marriage_distances".format(output_path, name) # save marriage distances
-    with open(Dname, 'wb') as myfile:
-        pickle.dump(all_marriage_distances, myfile)
-    Cname = "{}/{}_children_per_couple".format(output_path, name)   # save children
-    with open(Cname, 'wb') as fcp:
-        pickle.dump(all_children_per_couple, fcp)
+    if save:
+        output_path = makeOutputDirectory("output", name)
+        Gname = Gname = "{}/{}_G.gpickle".format(output_path, name)   # save graph
+        nx.write_gpickle(G, Gname)
+        Uname = "{}/{}_marriage_edges".format(output_path, name)   # save unions
+        with open(Uname, 'wb') as fup:
+            pickle.dump(all_marriage_edges, fup)
+        Dname = "{}/{}_marriage_distances".format(output_path, name) # save marriage distances
+        with open(Dname, 'wb') as myfile:
+            pickle.dump(all_marriage_distances, myfile)
+        Cname = "{}/{}_children_per_couple".format(output_path, name)   # save children
+        with open(Cname, 'wb') as fcp:
+            pickle.dump(all_children_per_couple, fcp)
 
         # # save output of the last generation
         # if i == gen:
@@ -598,20 +601,138 @@ def human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_i
         #     with open(Cname, 'wb') as fcp:
         #         pickle.dump(all_children, fcp)
 
-    return G, all_marriage_edges, all_marriage_distances, all_children_per_couple
+    return G, all_marriage_edges, all_marriage_distances, all_children_per_couple, dies_out
 
 
 """
 below is example code to run the model
 """
 #
-name = 'tikopia_1930'
-# name = 'achuar_huasaga_chankuap'
-num_people = 50
-
-# num_gens = 20
-marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
-G, all_marriage_edges, all_marriage_distances, all_children_per_couple = human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name, when_to_stop=size_goal)
+# name = 'tikopia_1930'
+# # name = 'achuar_huasaga_chankuap'
+# num_people = 50
+#
+# # num_gens = 20
+# marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
+# G, all_marriage_edges, all_marriage_distances, all_children_per_couple = human_family_network(num_people, marriage_dist, prob_finite_marriage, prob_inf_marriage, child_dist, name, when_to_stop=size_goal)
 
 # size_goal
 # G.number_of_nodes()
+
+
+# csv with name of graph and starting nodes
+# The goal of this function is to find the "right" number of starting nodes.
+# def find_start_size(name, max_iters=100): # n = number of initial nodes
+#     iter = 0
+#
+#     marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
+#     num_people = size_goal//2
+#     dies_out = 0 # counter for the number of times the model dies out
+#     #     dies_out_lower_bound = 40 # the lower bound of how many times the model should die out
+#     #     dies_out_upper_bound = 60 # the upper bound of how many times the model should die out
+#     dies_out_threshold = 5
+#     greatest_lower_bound = 2
+#     least_upper_bound = size_goal
+#     while dies_out != dies_out_threshold and iter < max_iters: # while the number of times the model dies out is not equal to the threshold of dying:
+#         iter += 1
+#
+#         G, all_marriage_edges, all_marriage_distances, all_children_per_couple, dies = human_family_network(num_people,
+#                                                                                                             marriage_dist,
+#                                                                                                             prob_finite_marriage,
+#                                                                                                             prob_inf_marriage,
+#                                                                                                             child_dist,
+#                                                                                                             name,
+#                                                                                                             when_to_stop=size_goal,
+#                                                                                                             save=False)
+#         if dies:
+#             dies_out += 1
+#         # I would get some value for dies_out
+#
+#         if dies_out > dies_out_threshold:  # we want to increase num_people
+#             greatest_lower_bound = num_people  # current iteration died out too frequently.  Won't need to search below this point again.
+#             num_people = (num_people + least_upper_bound) // 2 # midpoint between num_people and size_goal
+#             dies_out = 0
+#             iter = 0
+#         elif dies_out < dies_out_threshold and iter == max_iters: # we want to decrease num_people
+#             least_upper_bound = num_people  # current iteration died out too infrequently.  Won't need to search above this point again
+#             num_people = (greatest_lower_bound + num_people) // 2 # midpoint between 2 and num_people
+#             dies_out = 0
+#             iter = 0
+#         print('starting population: ', num_people)
+#
+#     print("Size goal:", size_goal)
+#     print("Number of nodes:", G.number_of_nodes())
+#     return num_people
+
+
+def find_start_size(name, max_iters=100): # n = number of initial nodes
+    iter = 0
+
+    marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
+    num_people = size_goal//2
+    dies_out = 0 # counter for the number of times the model dies out
+    #     dies_out_lower_bound = 40 # the lower bound of how many times the model should die out
+    #     dies_out_upper_bound = 60 # the upper bound of how many times the model should die out
+    dies_out_threshold = 5
+    greatest_lower_bound = 2
+    least_upper_bound = size_goal
+    while dies_out != dies_out_threshold: # while the number of times the model dies out is not equal to the threshold of dying:
+
+        for i in range(max_iters):
+            G, all_marriage_edges, all_marriage_distances, all_children_per_couple, dies = human_family_network(num_people,
+                                                                                                                marriage_dist,
+                                                                                                                prob_finite_marriage,
+                                                                                                                prob_inf_marriage,
+                                                                                                                child_dist,
+                                                                                                                name,
+                                                                                                                when_to_stop=size_goal,
+                                                                                                                save=False)
+            if dies:
+                dies_out += 1
+            if dies_out > dies_out_threshold:
+                break
+        print('greatest_lower_bound: ', greatest_lower_bound)
+        print('least_upper_bound: ', least_upper_bound)
+        if greatest_lower_bound >= least_upper_bound - 1:
+            # IE the ideal lies between these two integers
+            # so return the larger
+            num_people = least_upper_bound
+            break
+        elif dies_out == dies_out_threshold:
+            break
+        elif dies_out > dies_out_threshold:  # we want to increase num_people
+            greatest_lower_bound = num_people  # current iteration died out too frequently.  Won't need to search below this point again.
+            num_people = (num_people + least_upper_bound) // 2 # midpoint between num_people and size_goal
+            dies_out = 0
+            iter = 0
+        elif dies_out < dies_out_threshold: # we want to decrease num_people
+            least_upper_bound = num_people  # current iteration died out too infrequently.  Won't need to search above this point again
+            num_people = (greatest_lower_bound + num_people) // 2 # midpoint between 2 and num_people
+            dies_out = 0
+            iter = 0
+        print('starting population: ', num_people)
+
+# find_start_size(name, max_iters=100)
+# print('done')
+#
+# marriage_dist, num_marriages, prob_inf_marriage, prob_finite_marriage, child_dist, size_goal = get_graph_stats(name)
+# num_people = 66
+# dies_out = 0 # counter for the number of times the model dies out
+# #     dies_out_lower_bound = 40 # the lower bound of how many times the model should die out
+# #     dies_out_upper_bound = 60 # the upper bound of how many times the model should die out
+# dies_out_threshold = 5
+# greatest_lower_bound = 2
+# least_upper_bound = size_goal
+# max_iters = 1000
+# for i in range(max_iters):
+#     G, all_marriage_edges, all_marriage_distances, all_children_per_couple, dies = human_family_network(num_people,
+#                                                                                                         marriage_dist,
+#                                                                                                         prob_finite_marriage,
+#                                                                                                         prob_inf_marriage,
+#                                                                                                         child_dist,
+#                                                                                                         name,
+#                                                                                                         when_to_stop=size_goal,
+#                                                                                                         save=False)
+#     if dies:
+#         dies_out += 1
+# dies_out
